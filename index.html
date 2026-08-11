@@ -778,7 +778,12 @@ function dishDetail(id,scale){
     if(fd.id==="salt")w*=sl.salt;
     if(fd.id==="soysauce")w*=sl.soy/8;
     if(fd.id==="oyster_sauce")w*=sl.oyster/6;
-    const gTxt=(scale&&fd.id!=="salt"&&fd.id!=="soysauce"&&fd.id!=="oyster_sauce")?Math.round(it.g*(scale||1))+"g":it.g+"g";
+    /* 盐/酱油/蚝油按控盐档位缩放显示（与 dishNut 营养计算同公式），
+       其余食材按份量 scale 显示 */
+    const gTxt=(fd.id==="salt")?Math.round(it.g*sl.salt)+"g"
+      :(fd.id==="soysauce")?Math.round(it.g*sl.soy/8)+"g"
+      :(fd.id==="oyster_sauce")?Math.round(it.g*sl.oyster/6)+"g"
+      :(scale?Math.round(it.g*(scale||1))+"g":it.g+"g");
     return `<tr><td>${fd.name}</td><td class="r">${gTxt}</td><td class="r">${fmt(fd.kcal*w,0)} kcal</td></tr>`;
   }).join("");
   return `<div class="modal-head">
