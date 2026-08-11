@@ -85,6 +85,11 @@ input[type=range]{flex:1;accent-color:var(--leaf-2)}
 .btn-gen:hover{background:var(--leaf-2)}
 .btn-gen:active{transform:scale(.985)}
 .btn-gen:disabled{background:#b9c4bd;cursor:not-allowed}
+.btn-reset{
+  margin-left:10px;padding:3px 12px;border:1px solid var(--leaf-2);border-radius:6px;
+  background:#fff;color:var(--leaf-2);font-size:12px;cursor:pointer;vertical-align:1px;font-family:inherit;
+}
+.btn-reset:hover{background:var(--leaf-2);color:#fff}
 
 /* 档案结果 */
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
@@ -284,9 +289,9 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
             <select id="fishN">
               <option value="0">0 次（不吃水产）</option>
               <option value="1">1 次</option>
-              <option value="2">2 次</option>
+              <option value="2" selected>2 次</option>
               <option value="3">3 次</option>
-              <option value="4" selected>4 次</option>
+              <option value="4">4 次</option>
               <option value="5">5 次</option>
               <option value="6">6 次</option>
               <option value="7">7 次（每天）</option>
@@ -428,7 +433,7 @@ function targets(kc){
 }
 
 /* ================= 状态 ================= */
-const state={sex:"male",pal:"1",goal:"bp",fishN:4,season:0,salt:1,
+const state={sex:"male",pal:"1",goal:"bp",fishN:2,season:0,salt:1,
   week:[],curDay:0,history:[],signatures:[]};
 const LS_HIST="dietplan_hist_v1", LS_SIG="dietplan_sig_v1";
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
@@ -535,6 +540,9 @@ function buildDay(used90,usedWeek,season,dayIdx,goalKc,fishDays,preferVD){
   const kcal={b:goalKc*0.25, m:goalKc*0.35, d:goalKc*0.30, sn:goalKc*0.10};
   const isFishDay=fishDays.includes(dayIdx);
   const fishIdx=fishDays.indexOf(dayIdx);
+  /* 高维D鱼日按比例限流：鱼日越多，高VD日占比越低（至少1天），
+     避免 fishN 小时普通水产（虾/鱿鱼/贝/蛤蜊）被高VD鱼全面垄断而不入池 */
+  const vdDays=Math.max(1,Math.ceil(state.fishN/2));
 
   /* 早餐：1道主食早餐 + 蛋/奶基础补充 */
   const bPool=DIET_DB.dishes.filter(x=>x.meal==="b"&&x.tag==="staple").map(x=>x.id);
@@ -552,7 +560,7 @@ function buildDay(used90,usedWeek,season,dayIdx,goalKc,fishDays,preferVD){
   const dayRot=(a,o)=>a.map((_,i)=>a[(i+o)%a.length]);
   const rotTags=dayRot(["beef","chicken","pork","egg"],dayIdx);
   const lunchMeatTags=isFishDay?["fish"]:rotTags.slice(0,2);
-  let meat1=pickLunch(kcal.m,vegPool,lunchMeatTags,used90,usedWeek,season,isFishDay&&preferVD&&fishIdx<2,null,last);
+  let meat1=pickLunch(kcal.m,vegPool,lunchMeatTags,used90,usedWeek,season,isFishDay&&preferVD&&fishIdx<vdDays,null,last);
   if(meat1)add(meat1,"m");
   const v1=pickByKcal(vegPool,used90,usedWeek,season,kcal.m,0.08,"veg")||pickLoose(vegPool,used90,season,kcal.m,0.08);
   const v2=pickByKcal(vegPool.filter(x=>x!==v1),used90,usedWeek,season,kcal.m,0.08,"veg")||pickLoose(vegPool.filter(x=>x!==v1),used90,season,kcal.m,0.08);
@@ -671,12 +679,9 @@ function pickLunch(slotKc,vegPool,poolTag,used90,usedWeek,season,preferVD,exclud
         /* 高VD组内：能量分层+LRU（高VD鱼能量接近，主要靠LRU轮换） */
         const top=pickLRU(cands,slotKc*0.38);
         if(top){best=top;return;}
-      }else if(hiVD.length){
-        /* 高VD鱼全被冷却：放宽冷却约束，取最近未用的高VD鱼保底 */
-        const cool=hiVD.filter(id=>!usedWeek.has(id)).sort((a,b)=>tLast(a)-tLast(b));
-        if(cool.length){best=cool[0];return;}
-        return;
       }
+      /* 高VD鱼全被冷却/本周已用：本轮让位普通鱼池（不硬选旧高VD鱼），
+         避免高VD鱼垄断鱼日席位、普通水产永不入池 */
     }
     const cands=ids.filter(id=>!used90.has(id)&&!usedWeek.has(id));
     if(!cands.length){
@@ -814,8 +819,9 @@ function tagName(t){return {fish:"水产",beef:"牛肉",chicken:"禽肉",pork:"�
 function renderWeek(){
   ["secMenu","secAna","secTips"].forEach(id=>document.getElementById(id).style.display="");
   const used=Object.keys(buildUsage().last).length;
-  document.getElementById("weekInfo").textContent=
-    `${new Date().getFullYear()}年${new Date().getMonth()+1}月 · 已累计生成 ${state.signatures.length} 次方案 · 6周窗口内已用菜品 ${used} 道`;
+  document.getElementById("weekInfo").innerHTML=
+    `${new Date().getFullYear()}年${new Date().getMonth()+1}月 · 已累计生成 ${state.signatures.length} 次方案 · 6周窗口内已用菜品 ${used} 道`+
+    ` <button class="btn-reset" onclick="resetCount()" title="清零累计生成次数与已用菜品记录">重置</button>`;
   const area=document.getElementById("menuArea");
   const weekDays=["周一","周二","周三","周四","周五","周六","周日"];
   area.innerHTML=`
@@ -982,6 +988,15 @@ function autoGen(){
   genT=setTimeout(()=>{ try{ generateWeek(false); state.curDay=0; renderWeek(); }catch(err){ console.error(err); } },300);
 }
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2600);}
+function resetCount(){
+  if(!confirm("重置将清空累计生成次数与已用菜品记录，并重新开始新的一轮。"))return;
+  try{localStorage.removeItem(LS_HIST);localStorage.removeItem(LS_SIG);}catch(e){}
+  state.history=[]; state.signatures=[];
+  try{generateWeek(true);}catch(err){console.error(err);}
+  state.curDay=0;
+  renderWeek();
+  toast("已重置，新的一轮开始");
+}
 $("#sexSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   $("#sexSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
   state.sex=b.dataset.v; renderProfile(); autoGen();
