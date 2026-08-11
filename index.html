@@ -92,12 +92,23 @@ input[type=range]{flex:1;accent-color:var(--leaf-2)}
 .btn-reset:hover{background:var(--leaf-2);color:#fff}
 
 /* 本周食材清单 */
-.shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px}
-.shop-col{background:#fff;border:1px solid #e2e8e0;border-radius:10px;padding:10px 12px}
-.shop-col h5{margin:0 0 6px;font-size:13px;color:var(--leaf-2);border-bottom:1px dashed #d8e0d8;padding-bottom:4px}
-.shop-row{display:flex;justify-content:space-between;gap:8px;font-size:13px;line-height:1.7}
-.shop-row span{color:#444}
-.shop-row b{color:#222;font-weight:600;white-space:nowrap}
+.shop-sum{display:flex;align-items:center;gap:6px;margin:0 0 12px;font-size:13px;color:#5c6b60}
+.shop-sum b{color:var(--leaf-2)}
+.shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;margin-bottom:20px}
+.shop-col{background:#fff;border:1px solid #e4ebe3;border-radius:14px;padding:12px 14px 10px;box-shadow:0 1px 3px rgba(38,94,60,.05);transition:box-shadow .15s,transform .15s}
+.shop-col:hover{box-shadow:0 5px 16px rgba(38,94,60,.10);transform:translateY(-2px)}
+.shop-col h5{margin:0 0 6px;font-size:13px;color:var(--leaf-2);display:flex;align-items:center;gap:6px;padding-bottom:6px;border-bottom:1px solid #eef3ec;letter-spacing:.5px}
+.shop-count{margin-left:auto;font-size:11px;color:#8aa396;background:#f2f7f1;border-radius:20px;padding:1px 8px;font-weight:600}
+.shop-row{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.9;cursor:pointer;border-radius:6px;padding:0 4px;transition:background .12s;user-select:none}
+.shop-row:hover{background:#f6faf5}
+.shop-row .dot{width:15px;height:15px;border:1.5px solid #c4d6c9;border-radius:50%;flex:none;transition:all .15s;position:relative;margin-top:2px}
+.shop-row.done .dot{background:var(--leaf-2);border-color:var(--leaf-2)}
+.shop-row.done .dot::after{content:'';position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.shop-row span{color:#3c4a40;flex:1}
+.shop-row.done span{color:#a8b4ac;text-decoration:line-through}
+.shop-row em{font-style:normal;color:#94a29a;font-size:12px}
+.shop-row b{color:var(--leaf-2);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.shop-row.done b{color:#a8b4ac}
 
 /* 档案结果 */
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
@@ -838,6 +849,7 @@ function tagCls(tag){return "tag-"+tag;}
 function tagName(t){return {fish:"水产",beef:"牛肉",chicken:"禽肉",pork:"猪肉",egg:"蛋类",veg:"素菜",staple:"主食",fruit:"水果",dairy:"奶类",nut:"坚果"}[t]||t}
 /* ===== 本周食材清单 ===== */
 const SHOP_TITLES={grain:"主食",meat:"肉",fish:"水产",egg:"蛋类",bean:"豆制品",dairy:"奶类",veg:"蔬菜",mushroom:"菌菇",fruit:"水果",nut:"坚果",oil:"食用油",season:"调味料"};
+const SHOP_ICONS={grain:"🍚",meat:"🥩",fish:"🐟",egg:"🥚",bean:"🫘",dairy:"🥛",veg:"🥬",mushroom:"🍄",fruit:"🍎",nut:"🥜",oil:"🫒",season:"🧂"};
 const SHOP_ORDER=["grain","meat","fish","egg","bean","dairy","veg","mushroom","fruit","nut","oil","season"];
 function renderShopList(){
   const area=document.getElementById("shopArea");
@@ -857,17 +869,20 @@ function renderShopList(){
     });
   }));
   const fmtG=v=>{v=Math.round(v*10)/10;return v===Math.floor(v)?fmt(v,0):v.toFixed(1);};
-  let html='<div class="shop-grid">';
+  const total=Object.keys(agg).length;
+  let html=`<div class="shop-sum">🛒 本周共需 <b>${total}</b> 种食材 · 点击条目可勾选打勾</div><div class="shop-grid">`;
   SHOP_ORDER.forEach(c=>{
     const list=Object.values(agg).filter(a=>a.c===c).sort((a,b)=>b.g-a.g);
     if(!list.length)return;
-    html+=`<div class="shop-col"><h5>${SHOP_TITLES[c]}</h5>`+
+    html+=`<div class="shop-col"><h5>${SHOP_ICONS[c]||"·"}${SHOP_TITLES[c]}<span class="shop-count">${list.length}种</span></h5>`+
       list.map(a=>{
-        const extra=(a.c==="egg")?`（约${Math.round(a.g/50)}个）`:"";
-        return `<div class="shop-row"><span>${a.n}</span><b>${fmtG(a.g)}g${extra}</b></div>`;
+        const extra=(a.c==="egg")?`<em>约${Math.round(a.g/50)}个</em>`:"";
+        return `<div class="shop-row"><i class="dot"></i><span>${a.n}${extra}</span><b>${fmtG(a.g)}g</b></div>`;
       }).join("")+"</div>";
   });
   area.innerHTML=html+"</div>";
+  /* 采购打勾（事件委托，切换完成态） */
+  area.onclick=e=>{const row=e.target.closest(".shop-row");if(row)row.classList.toggle("done");};
 }
 
 function renderWeek(){
