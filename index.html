@@ -94,16 +94,17 @@ input[type=range]{flex:1;accent-color:var(--leaf-2)}
 /* 本周食材清单 */
 .shop-sum{display:flex;align-items:center;gap:6px;margin:0 0 12px;font-size:13px;color:#5c6b60}
 .shop-sum b{color:var(--leaf-2)}
-.shop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,240px));gap:14px;margin-bottom:20px;align-items:start}
-.shop-col{background:#fff;border:1px solid #e4ebe3;border-radius:14px;padding:12px 14px 10px;box-shadow:0 1px 3px rgba(38,94,60,.05);transition:box-shadow .15s,transform .15s}
-.shop-col:hover{box-shadow:0 5px 16px rgba(38,94,60,.10);transform:translateY(-2px)}
-.shop-col h5{margin:0 0 6px;font-size:13px;color:var(--leaf-2);display:flex;align-items:center;gap:6px;padding-bottom:6px;border-bottom:1px solid #eef3ec;letter-spacing:.5px}
+.shop-grid{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+.shop-col{background:#fff;border:1px solid #e4ebe3;border-left:4px solid var(--leaf-2);border-radius:8px;padding:8px 14px 10px;box-shadow:0 1px 3px rgba(38,94,60,.05);transition:box-shadow .15s}
+.shop-col:hover{box-shadow:0 3px 10px rgba(38,94,60,.08)}
+.shop-col h5{margin:0 0 4px;font-size:13px;color:var(--leaf-2);display:flex;align-items:center;gap:6px;letter-spacing:.5px}
 .shop-count{margin-left:auto;font-size:11px;color:#8aa396;background:#f2f7f1;border-radius:20px;padding:1px 8px;font-weight:600}
-.shop-row{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.9;cursor:pointer;border-radius:6px;padding:0 4px;transition:background .12s;user-select:none}
+.shop-rows{columns:210px auto;column-gap:22px}
+.shop-row{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.85;cursor:pointer;border-radius:6px;padding:0 4px;transition:background .12s;user-select:none;break-inside:avoid}
 .shop-row:hover{background:#f6faf5}
-.shop-row .dot{width:15px;height:15px;border:1.5px solid #c4d6c9;border-radius:50%;flex:none;transition:all .15s;position:relative;margin-top:2px}
+.shop-row .dot{width:13px;height:13px;border:1.5px solid #c4d6c9;border-radius:50%;flex:none;transition:all .15s;position:relative;margin-top:2px}
 .shop-row.done .dot{background:var(--leaf-2);border-color:var(--leaf-2)}
-.shop-row.done .dot::after{content:'';position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.shop-row.done .dot::after{content:'';position:absolute;left:3.5px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .shop-row span{color:#3c4a40;flex:1}
 .shop-row.done span{color:#a8b4ac;text-decoration:line-through}
 .shop-row em{font-style:normal;color:#94a29a;font-size:12px}
@@ -874,11 +875,11 @@ function renderShopList(){
   SHOP_ORDER.forEach(c=>{
     const list=Object.values(agg).filter(a=>a.c===c).sort((a,b)=>b.g-a.g);
     if(!list.length)return;
-    html+=`<div class="shop-col"><h5>${SHOP_ICONS[c]||"·"}${SHOP_TITLES[c]}<span class="shop-count">${list.length}种</span></h5>`+
+    html+=`<div class="shop-col"><h5>${SHOP_ICONS[c]||"·"}${SHOP_TITLES[c]}<span class="shop-count">${list.length}种</span></h5><div class="shop-rows">`+
       list.map(a=>{
         const extra=(a.c==="egg")?`<em>约${Math.round(a.g/50)}个</em>`:"";
         return `<div class="shop-row"><i class="dot"></i><span>${a.n}${extra}</span><b>${fmtG(a.g)}g</b></div>`;
-      }).join("")+"</div>";
+      }).join("")+"</div></div>";
   });
   area.innerHTML=html+"</div>";
   /* 采购打勾（事件委托，切换完成态） */
