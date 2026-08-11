@@ -237,7 +237,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div class="mark">食</div>
       <div><b>食养餐单</b><small>一周营养食谱生成器 · 参考 DRIs 2023</small></div>
     </div>
-    <div class="top-meta">数据库 <b id="dbStat">—</b> · <span id="histStat">90 天滚动去重</span></div>
+    <div class="top-meta">数据库 <b id="dbStat">—</b> · <span id="histStat">6 周滚动去重</span></div>
   </div>
 </header>
 
@@ -355,7 +355,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <div class="modal" id="dishModalBox"></div>
 </div>
 
-<script src="dietdata.js"></script>
+<script src="dietdata.js?v=20260810b"></script>
 <script>
 /* ================= 常量与工具 ================= */
 const DRIS = {
@@ -394,7 +394,7 @@ function nut(id,scale){const k=id+":"+state.salt+":"+(scale||1);return NUTCACHE[
 function hasFood(id,fids){return DISH[id].ing.some(i=>fids.includes(i.f));}
 const EGGIDS=["egg"], MILKIDS=["milk","milk_lowfat","yogurt","soymilk"];
 /* 主食均可缩放（米面类上限1.35；薯类能量低、上限2.0以够到目标能量） */
-const GRAIN_FOODS=new Set(["rice","brownrice","millet","oat","wholewheat","buckwheat","redbean"]);
+const GRAIN_FOODS=new Set(["rice","brownrice","millet","oat","wholewheat","buckwheat","redbean","blackrice","quinoa","barley","cornsemolina"]);
 function isScaleable(id){
   const d=DISH[id];
   return d.tag==="staple";
@@ -436,13 +436,17 @@ function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 
 function buildUsage(){
   state.history=loadLS(LS_HIST,[]);
-  const now=NOW_OVERRIDE?new Date(NOW_OVERRIDE+"T00:00:00"):new Date();
-  const cutoff=new Date(now); cutoff.setDate(cutoff.getDate()-90);
+  const now=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date();
+  /* last 必须基于全部历史（≥池全覆盖时间）：42天窗口内"用过"的菜若被遗忘，
+     会与"从未用过"混淆（days=999）→ diff 小的菜永远垄断，大池菜永远轮不到。
+     池最大~120道(veg)/每周~14槽=9周；荤菜池30道/每周2-3槽=10-15周。保留180天足够。 */
+  const cutoff=new Date(now); cutoff.setDate(cutoff.getDate()-180);
   state.history=state.history.filter(h=>new Date(h.date+"T00:00:00")>=cutoff);
   const last={};
   state.history.forEach(h=>{h.dishes.forEach(id=>{last[id]=h.date})});
-  /* 冷却期（天）：单菜级"尽量不重复"软约束（组合级由周签名保证90天不重复） */
-  const COOL={fish:21,beef:10,chicken:10,pork:10,egg:3,veg:7,staple:7,fruit:7,dairy:4,nut:7};
+  /* 冷却期（天）：单菜级"尽量不重复"软约束（组合级由周签名保证6周不重复）
+     2026-08 扩库后调大：主食/素菜/荤菜池翻倍，主食21天冷却=6周窗口内每道主食至多2次 */
+  const COOL={fish:21,beef:21,chicken:21,pork:21,egg:14,veg:21,staple:21,fruit:14,dairy:7,nut:7};
   const blocked=new Set();
   Object.keys(last).forEach(id=>{
     if(!DISH[id])return;
@@ -452,9 +456,13 @@ function buildUsage(){
   return {last,blocked};
 }
 let NOW_OVERRIDE=null;  /* 模拟时钟（测试用）；null=真实时间 */
-function setNow(d){NOW_OVERRIDE=d||null;}  /* 测试钩子：注入模拟日期 */
+function setNow(d){NOW_OVERRIDE=d||null;}  /* 测试钩子：注入模拟日期（Date 对象或 'YYYY-MM-DD' 字符串） */
 function todayStr(){
-  if(NOW_OVERRIDE)return NOW_OVERRIDE;
+  if(NOW_OVERRIDE){
+    const d=new Date(NOW_OVERRIDE);
+    if(!isNaN(d.getTime()))return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    return NOW_OVERRIDE;  /* 已是字符串 */
+  }
   const d=new Date();
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 }
@@ -477,37 +485,48 @@ function pick(cands,used90,usedWeek,season,tag){
   const tie=scored.filter(x=>Math.abs(x.s-top.s)<1);  /* 分数差<1视为平局，随机打破 */
   return tie[Math.floor(Math.random()*tie.length)].id;
 }
-/* 按能量差选择（近目标能量的优先，兼顾去重；能量差≤6kcal时更久未用者优先→池内自动轮换） */
+/* 按 LRU 主序+能量次级选择：候选=冷却外&周外&季节内&能量不离谱(diff≤max(150,目标×0.6))；
+   排序=最久未用优先（长期分布均匀），同未用天数按能量差贴近目标。
+   能量偏差由主食缩放/日校准吸收，故不设窄阈值 */
 function pickByKcal(cands,used90,usedWeek,season,slotKc,ratio,tag){
+  const target=slotKc*ratio;
+  const now=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date();
+  const tLast=(id)=>{const v=state.usedLast[id];return v?new Date(v+"T00:00:00").getTime():0;};
+  const maxDiff=Math.max(150,target*0.6);
   let best=null,bestScore=1e18;
-  const now=NOW_OVERRIDE?new Date(NOW_OVERRIDE+"T00:00:00"):new Date();
   cands.forEach(id=>{
     const d=DISH[id];
     if(used90.has(id)||usedWeek.has(id)) return;
     if(tag&&d.tag!==tag) return;
     if(season>0&&d.season&&d.season.length&&!d.season.includes(season)) return;
-    const diff=Math.abs(nut(id).kcal-slotKc*ratio);
-    const lu=state.usedLast[id]?new Date(state.usedLast[id]):new Date(0);
-    const days=(now-lu)/86400000;
-    const score=diff-Math.min(40,Math.max(0,days))/40*6;  /* 未用≥40天享6kcal让位 */
+    const diff=Math.abs(nut(id).kcal-target);
+    if(diff>maxDiff) return;  /* 能量离谱硬过滤（仅全候选离谱时走兜底） */
+    const lu=tLast(id);
+    const days=lu?(now-lu)/86400000:999;  /* 从未用过=999天未用（最优先轮换） */
+    const score=-days*1000+diff;  /* LRU主序：未用越久分越低 */
     if(score<bestScore){bestScore=score;best=id;}
   });
   if(best)return best;
-  return pick(cands,used90,usedWeek,season,tag);  /* 兜底 */
+  return pick(cands,used90,usedWeek,season,tag);  /* 兜底（放宽冷却与能量） */
 }
-/* 宽松选择：忽略周内去重（候选不足时），保留季节过滤；优先冷却外菜品，全冷却时用冷却中最近能量接近者兜底，保证每个槽位不缺菜 */
+/* 宽松选择：忽略周内去重（候选不足时），保留季节过滤；LRU主序+能量次级同pickByKcal */
 function pickLoose(ids,used90,season,slotKc,ratio){
-  let best=null,bestDiff=1e9,bestF=null,bestFDiff=1e9;
+  const target=slotKc*ratio;
+  const now=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date();
+  const tLast=(id)=>{const v=state.usedLast[id];return v?new Date(v+"T00:00:00").getTime():0;};
+  const maxDiff=Math.max(150,target*0.6);
+  let best=null,bestScore=1e18;
   ids.forEach(id=>{
     const d=DISH[id];
     if(season>0&&d.season&&d.season.length&&!d.season.includes(season)) return;
-    const diff=Math.abs(nut(id).kcal-slotKc*ratio);
-    if(!used90.has(id)){
-      if(diff<bestFDiff){bestFDiff=diff;bestF=id;}
-      else if(diff<=bestFDiff*1.03&&Math.random()<0.2){bestFDiff=diff;bestF=id;}
-    }else if(diff<=bestDiff*1.03&&Math.random()<0.2){bestDiff=diff;best=id;}
+    const diff=Math.abs(nut(id).kcal-target);
+    const coolPenalty=used90.has(id)?20000:0;  /* 冷却中菜垫底兜底 */
+    const lu=tLast(id);
+    const days=lu?(now-lu)/86400000:999;  /* 从未用过=999天未用（最优先轮换） */
+    const score=coolPenalty-days*1000+diff;
+    if(score<bestScore){bestScore=score;best=id;}
   });
-  return bestF||best;
+  return best;
 }
 function buildDay(used90,usedWeek,season,dayIdx,goalKc,fishDays,preferVD){
   const last=state.usedLast||{};
@@ -597,50 +616,66 @@ function buildDay(used90,usedWeek,season,dayIdx,goalKc,fishDays,preferVD){
 
   return menu;
 }
-/* 主食选择：可缩放米面类按目标能量调克重；薯类固定一份。优先冷却外，全冷却时用冷却中能量接近者兜底（保证主食不缺，碳水供能不塌） */
+/* 主食选择：可缩放米面类按目标能量调克重；薯类固定一份。LRU主序+能量次级：
+   主食均可缩放，未用越久越优先→池内均匀轮换 */
 function staplePick(pool,used90,usedWeek,season,slotKc,ratio){
   const target=slotKc*ratio;
-  let best=null,bestDiff=1e9,bestF=null,bestFDiff=1e9;
+  const now=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date();
+  const tLast=(id)=>{const v=state.usedLast[id];return v?new Date(v+"T00:00:00").getTime():0;};
+  const maxDiff=Math.max(150,target*0.6);
+  let best=null,bestScore=1e18;
   pool.forEach(id=>{
     if(usedWeek.has(id)) return;
     const d=DISH[id];
     if(season>0&&d.season&&d.season.length&&!d.season.includes(season)) return;
     const eff=isScaleable(id)?nut(id).kcal*stapleScale(id,target):nut(id).kcal;
     const diff=Math.abs(eff-target);
-    if(!used90.has(id)){
-      if(diff<bestFDiff){bestFDiff=diff;bestF=id;}
-      else if(diff<=bestFDiff*1.02&&Math.random()<0.25){bestFDiff=diff;bestF=id;}
-    }else{
-      if(diff<bestDiff){bestDiff=diff;best=id;}
-      else if(diff<=bestDiff*1.02&&Math.random()<0.25){bestDiff=diff;best=id;}
-    }
+    if(diff>maxDiff) return;
+    const coolPenalty=used90.has(id)?20000:0;  /* 冷却外优先，全冷却时冷却中菜兜底 */
+    const lu=tLast(id);
+    const days=lu?(now-lu)/86400000:999;  /* 从未用过=999天未用（最优先轮换） */
+    const score=coolPenalty-days*1000+diff;
+    if(score<bestScore){bestScore=score;best=id;}
   });
-  if(bestF)return {id:bestF,scale:isScaleable(bestF)?stapleScale(bestF,target):undefined};
-  if(best)return {id:best,scale:isScaleable(best)?stapleScale(best,target):undefined};
-  return null;
+  if(!best)return null;
+  return {id:best,scale:isScaleable(best)?stapleScale(best,target):undefined};
 }
 function pickLunch(slotKc,vegPool,poolTag,used90,usedWeek,season,preferVD,exclude,last){
+  const now=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date();
   const tLast=(id)=>{const v=last[id];return v?new Date(v+"T00:00:00").getTime():0;};
+  const pickLRU=(ids,target)=>{
+    /* LRU主序+能量次级：荤菜池均匀轮换且贴目标 */
+    const maxDiff=Math.max(150,target*0.6);
+    let best=null,bestScore=1e18;
+    ids.forEach(id=>{
+      if(usedWeek.has(id)) return;
+      const diff=Math.abs(nut(id).kcal-target);
+      if(diff>maxDiff) return;
+      const coolPenalty=used90.has(id)?20000:0;
+      const lu=tLast(id);
+      const days=lu?(now-lu)/86400000:999;  /* 从未用过=999天未用（最优先轮换） */
+      const score=coolPenalty-days*1000+diff;
+      if(score<bestScore){bestScore=score;best=id;}
+    });
+    return best;
+  };
   let best=null;
   poolTag.forEach(t=>{
     if(best)return;  /* 标签顺序优先：第一个有菜的标签即定，保证荤菜种类均衡轮换 */
     let ids=DIET_DB.dishes.filter(x=>x.meal==="m"&&x.tag===t&&x.id!==exclude).map(x=>x.id);
     if(preferVD){
-      /* 高维D鱼优先：三文鱼、带鱼 */
-      const hiVD=ids.filter(id=>nut(id).vd>=2&&!used90.has(id)&&!usedWeek.has(id));
-      if(hiVD.length) ids=hiVD;
-    }
-    if(preferVD&&ids.length){
-      /* 高VD鱼优先，但须避开冷却期/本周已用：取最高VD组内最久未用者轮换 */
-      const cands=ids.filter(id=>!used90.has(id)&&!usedWeek.has(id));
-      if(!cands.length){
-        /* 高VD鱼全被冷却：放宽到vd>=2且最久未用，避免三文鱼霸占 */
-        const hi=ids.filter(id=>nut(id).vd>=2).sort((a,b)=>tLast(a)-tLast(b));
-        if(hi.length){best=hi[0];return;}
-      }else{
-        const maxVD=Math.max(...cands.map(id=>nut(id).vd));
-        const top=cands.filter(id=>nut(id).vd===maxVD).sort((a,b)=>tLast(a)-tLast(b))[0];
+      /* 高维D鱼优先：三文鱼、带鱼；组内LRU轮换，避免三文鱼霸占 */
+      const hiVD=ids.filter(id=>nut(id).vd>=2);
+      const cands=hiVD.filter(id=>!used90.has(id)&&!usedWeek.has(id));
+      if(cands.length){
+        /* 高VD组内：能量分层+LRU（高VD鱼能量接近，主要靠LRU轮换） */
+        const top=pickLRU(cands,slotKc*0.38);
         if(top){best=top;return;}
+      }else if(hiVD.length){
+        /* 高VD鱼全被冷却：放宽冷却约束，取最近未用的高VD鱼保底 */
+        const cool=hiVD.filter(id=>!usedWeek.has(id)).sort((a,b)=>tLast(a)-tLast(b));
+        if(cool.length){best=cool[0];return;}
+        return;
       }
     }
     const cands=ids.filter(id=>!used90.has(id)&&!usedWeek.has(id));
@@ -650,14 +685,8 @@ function pickLunch(slotKc,vegPool,poolTag,used90,usedWeek,season,preferVD,exclud
       if(cool.length){best=cool[0];return;}
       return;
     }
-    /* 能量优先（差>6kcal时），能量接近时未用久的优先：既贴目标又池内轮换 */
-    const pool3=last?[...cands].sort((a,b)=>{
-      const da=Math.abs(nut(a).kcal-slotKc*0.38), db=Math.abs(nut(b).kcal-slotKc*0.38);
-      if(Math.abs(da-db)>6)return da-db;
-      return tLast(a)-tLast(b);
-    }).slice(0,10):cands;
-    const id=pickByKcal(pool3,used90,usedWeek,season,slotKc,0.38,null)||pool3[0];
-    if(id)best=id;
+    const top=pickLRU(cands,slotKc*0.38);
+    if(top)best=top;
   });
   return best;
 }
@@ -677,7 +706,7 @@ function generateWeek(record=true){
   const fishDays=fishWeekDays(state.fishN,state.signatures.length%7);
   const season=SEASON_MAP[state.season]();
   state.signatures=loadLS(LS_SIG,[]).filter(s=>{
-    const t=new Date(s.d+"T00:00:00"); const cut=NOW_OVERRIDE?new Date(NOW_OVERRIDE+"T00:00:00"):new Date(); cut.setDate(cut.getDate()-90); return t>=cut;
+    const t=new Date(s.d+"T00:00:00"); const cut=NOW_OVERRIDE?new Date(todayStr()+"T00:00:00"):new Date(); cut.setDate(cut.getDate()-42); return t>=cut;
   });
   const recentSigs=new Set(state.signatures.map(s=>s.sig));
   let week=null;
@@ -695,7 +724,7 @@ function generateWeek(record=true){
   if(record){
     const t=todayStr();
     state.history=state.history.filter(h=>h.date!==t).concat([{date:t,dishes:state.week.flatMap(m=>m.items.map(i=>i.id)).filter(id=>!id.startsWith("add_"))}]);
-    state.signatures.push({d:t,sig:state.sig});  /* 按点击次数累计：每次正式生成+1（90天窗口内） */
+    state.signatures.push({d:t,sig:state.sig});  /* 按点击次数累计：每次正式生成+1（6周窗口内） */
     saveLS(LS_HIST,state.history);
     saveLS(LS_SIG,state.signatures);
   }
@@ -781,7 +810,7 @@ function renderWeek(){
   ["secMenu","secAna","secTips"].forEach(id=>document.getElementById(id).style.display="");
   const used=Object.keys(buildUsage().last).length;
   document.getElementById("weekInfo").textContent=
-    `${new Date().getFullYear()}年${new Date().getMonth()+1}月 · 已累计生成 ${state.signatures.length} 次方案 · 90天窗口内已用菜品 ${used} 道`;
+    `${new Date().getFullYear()}年${new Date().getMonth()+1}月 · 已累计生成 ${state.signatures.length} 次方案 · 6周窗口内已用菜品 ${used} 道`;
   const area=document.getElementById("menuArea");
   const weekDays=["周一","周二","周三","周四","周五","周六","周日"];
   area.innerHTML=`
@@ -852,7 +881,7 @@ function renderAnalysis(){
           <div class="ws"><div class="k">日均钠</div><div class="v num">${fmt(wkAvg.na,0)}<small>mg</small></div><div class="note">${wkAvg.na<=2000?"✓ ≤2000mg":"超限，建议减盐"}</div></div>
           <div class="ws"><div class="k">水产次数</div><div class="v num">${state.fishN}<small>次/周</small></div><div class="note">✓ 已安排</div></div>
           <div class="ws"><div class="k">食物品种</div><div class="v num" id="wsVar">—</div><div class="note">每日≥12 种 / 每周≥25 种</div></div>
-          <div class="ws"><div class="k">90天不重复</div><div class="v num">${state.signatures.length}<small>周</small></div><div class="note">方案级滚动去重</div></div>
+          <div class="ws"><div class="k">6周不重复</div><div class="v num">${state.signatures.length}<small>周</small></div><div class="note">方案级滚动去重</div></div>
           <div class="ws"><div class="k">控盐档位</div><div class="v">${SALT_LV[state.salt].l}</div><div class="note">${SALT_LV[state.salt].note}</div></div>
         </div>
       </div>
@@ -932,7 +961,7 @@ function renderTips(){
   tips.push(["食物多样性",`<p>餐单满足 <b>每日 ≥12 种、每周 ≥25 种</b>食物：</p><ul>
     <li>主食粗细搭配（杂粮占 1/3 以上）</li>
     <li>蔬菜深色占一半，时令优先</li>
-    <li>90 天内每周方案不重复，执行不腻</li></ul>`]);
+    <li>6 周内每周方案不重复，执行不腻</li></ul>`]);
   tips.push(["执行备忘",`<p>让餐单更好落地：</p><ul>
     <li>按周采购，蔬菜冷藏 3 天内食用</li>
     <li>鱼虾可冷冻分装，解冻后蒸煮</li>
@@ -970,13 +999,13 @@ $("#btnGen").onclick=()=>{
   try{generateWeek();}catch(err){console.error(err);toast("生成失败，请刷新重试");return;}
   state.curDay=0;
   renderWeek();
-  toast("已生成一周餐单 · 90天内不重复");
+  toast("已生成一周餐单 · 6周内不重复");
   document.getElementById("secMenu").scrollIntoView({behavior:"smooth"});
 };
 window.addEventListener("load",()=>{
   document.getElementById("dbStat").textContent=`${DIET_DB.foods.length} 种食材 × ${DIET_DB.dishes.length} 道菜品`;
   const used=Object.keys(buildUsage().last).length;
-  document.getElementById("histStat").textContent=`90 天滚动去重 · 已用 ${used} 道`;
+  document.getElementById("histStat").textContent=`6 周滚动去重 · 已用 ${used} 道`;
   renderProfile();
   generateWeek(false);
   state.curDay=0;
