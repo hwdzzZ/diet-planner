@@ -879,31 +879,54 @@ function renderTips(){
   const naAvg=state.week.reduce((s,m)=>s+dayTotal(m).na,0)/7;
   const fishTotal=state.week.reduce((s,m)=>s+m.items.filter(it=>DISH[it.id].tag==="fish").length,0);
   const vdAvg=state.week.reduce((s,m)=>s+dayTotal(m).vd,0)/7;
-  const tips=[
-    ["控盐与血压",`<p>客户血压 130/91 mmHg（正常高值），饮食干预目标：<b>日均钠 ≤ 2000 mg（约5g食盐）</b>。当前餐单周均钠 ${fmt(naAvg,0)} mg（${SALT_LV[state.salt].l}档）。执行要点：</p><ul>
+  const bmi=calcBMI(+$("#weight").value,+$("#height").value);
+  const bmiNote=bmi<18.5?"偏瘦":bmi<24?"正常":bmi<28?"超重":"肥胖";
+  const tips=[];
+  if(state.goal==="bp"){
+    tips.push(["控盐与血压",`<p>血压偏高/正常高值人群，饮食干预核心：<b>日均钠 ≤ 2000 mg（约5g食盐）</b>。当前餐单周均钠 ${fmt(naAvg,0)} mg（${SALT_LV[state.salt].l}档）：</p><ul>
       <li>烹调少盐少酱油，可用醋、柠檬、香辛料提味</li>
       <li>少吃加工肉制品、腌菜、外卖高盐菜品</li>
-      <li>酱油 10ml ≈ 1.6g 盐，注意隐盐；餐单可切换「严格」档进一步限钠</li></ul>`],
-    ["补钾补钙",`<p>血压管理需高钾高钙膳食（DASH 膳食模式）：</p><ul>
+      <li>酱油 10ml ≈ 1.6g 盐，注意隐盐；可切换「严格」档进一步限钠</li></ul>`]);
+    tips.push(["补钾补钙",`<p>血压管理推荐高钾高钙膳食（DASH 模式）：</p><ul>
       <li>富钾：菠菜、西蓝花、豆类、菌菇、香蕉、薯类（餐单已高频安排）</li>
       <li>富钙：牛奶/酸奶 300ml+、北豆腐、苋菜、芝麻（每日安排）</li>
-      <li>钾目标 ≥2000mg/日，钙 ≥800mg/日</li></ul>`],
-    ["鱼虾与维生素D",`<p>按偏好每周安排 <b>${state.fishN} 次鱼虾</b>，本周实际水产菜品 ${fishTotal} 道。维生素D 周均 ${fmt(vdAvg,1)} μg（目标 10μg）：</p><ul>
-      <li>三文鱼/带鱼维D含量较高，餐单已在鱼虾日优先安排</li>
-      <li>鸡蛋每日 1 个（蛋黄含维D）</li>
-      <li>户外日晒 15-30 分钟/日；必要时遵医嘱补充维D制剂</li></ul>`],
-    ["体重与能量",`<p>客户 BMI ${calcBMI(+$("#weight").value,+$("#height").value).toFixed(1)}（超重），目标能量 ${t.kc} kcal/日 ≈ 维持能量（${fmt(state.eer,0)} kcal）的 ${fmt(t.kc/state.eer*100,0)}%：</p><ul>
-      <li>坚持餐单约 3-6 个月可平稳减重 5%-8%，对降压有明确获益</li>
-      <li>每 2 周复测体重与血压，及时调整</li></ul>`],
-    ["食物多样性",`<p>餐单满足 <b>每日 ≥12 种、每周 ≥25 种</b>食物：</p><ul>
-      <li>主食粗细搭配（杂粮占 1/3 以上）</li>
-      <li>蔬菜深色占一半，时令优先</li>
-      <li>90 天内每周方案不重复，执行不腻</li></ul>`],
-    ["执行备忘",`<p>让餐单更好落地：</p><ul>
-      <li>按周采购，蔬菜冷藏 3 天内食用</li>
-      <li>鱼虾可冷冻分装，解冻后蒸煮</li>
-      <li>上班族午晚餐可前一晚备菜 20 分钟</li></ul>`]
-  ];
+      <li>钾目标 ≥2000mg/日，钙 ≥800mg/日</li></ul>`]);
+  }else if(state.goal==="lose"){
+    tips.push(["控盐",`<p>减重期控盐有助减少水肿与食欲波动：<b>日均钠 ≤ 2000 mg（约5g食盐）</b>。当前餐单周均钠 ${fmt(naAvg,0)} mg（${SALT_LV[state.salt].l}档）：</p><ul>
+      <li>烹调少盐少酱油，可用醋、柠檬、香辛料提味</li>
+      <li>少吃加工肉制品、腌菜、外卖高盐菜品</li></ul>`]);
+    tips.push(["补钙与蛋白质",`<p>减重期保证钙与优质蛋白，减少肌肉流失：</p><ul>
+      <li>牛奶/酸奶 300ml+、北豆腐、鱼虾每日安排</li>
+      <li>钙 ≥800mg/日，蛋白质按 20% 供能供给</li></ul>`]);
+  }else{
+    tips.push(["控盐",`<p>健康膳食建议<b>日均食盐 <5g（钠 <2000mg）</b>。当前餐单周均钠 ${fmt(naAvg,0)} mg（${SALT_LV[state.salt].l}档）：</p><ul>
+      <li>烹调少盐少酱油，可用醋、柠檬、香辛料提味</li>
+      <li>少吃加工肉制品、腌菜、外卖高盐菜品</li></ul>`]);
+    tips.push(["补钙补钾",`<p>均衡微量营养素是长期健康的基础：</p><ul>
+      <li>富钙：牛奶/酸奶 300ml+、北豆腐、苋菜、芝麻（每日安排）</li>
+      <li>富钾：菠菜、西蓝花、豆类、菌菇、香蕉、薯类</li>
+      <li>钙 ≥800mg/日，钾 ≥2000mg/日</li></ul>`]);
+  }
+  let wLine;
+  if(state.goal==="lose") wLine="坚持餐单约 3-6 个月可平稳减重 5%-8%，建议配合每周 150 分钟中等强度运动";
+  else if(state.goal==="bp"&&bmi>=24) wLine="控重对降压有明确获益：体重下降 5%-8% 可明显改善血压";
+  else if(bmi>=24) wLine="维持现状即可，避免体重继续上升；想减重可切换「减重」目标";
+  else wLine="保持规律三餐，能量与消耗平衡即可";
+  tips.push(["体重与能量",`<p>BMI ${bmi.toFixed(1)}（${bmiNote}），目标能量 ${t.kc} kcal/日 ≈ 维持能量 ${fmt(state.eer,0)} kcal 的 ${fmt(t.kc/state.eer*100,0)}%：</p><ul>
+    <li>${wLine}</li>
+    <li>每 2 周复测体重${state.goal==="bp"?"与血压":""}，及时调整</li></ul>`]);
+  tips.push(["鱼虾与维生素D",`<p>按偏好每周安排 <b>${state.fishN} 次鱼虾</b>，本周实际水产菜品 ${fishTotal} 道。维生素D 周均 ${fmt(vdAvg,1)} μg（目标 10μg）：</p><ul>
+    <li>三文鱼/带鱼维D含量较高，餐单已在鱼虾日优先安排</li>
+    <li>鸡蛋每日 1 个（蛋黄含维D）</li>
+    <li>户外日晒 15-30 分钟/日；必要时遵医嘱补充维D制剂</li></ul>`]);
+  tips.push(["食物多样性",`<p>餐单满足 <b>每日 ≥12 种、每周 ≥25 种</b>食物：</p><ul>
+    <li>主食粗细搭配（杂粮占 1/3 以上）</li>
+    <li>蔬菜深色占一半，时令优先</li>
+    <li>90 天内每周方案不重复，执行不腻</li></ul>`]);
+  tips.push(["执行备忘",`<p>让餐单更好落地：</p><ul>
+    <li>按周采购，蔬菜冷藏 3 天内食用</li>
+    <li>鱼虾可冷冻分装，解冻后蒸煮</li>
+    <li>上班族午晚餐可前一晚备菜 20 分钟</li></ul>`]);
   document.getElementById("tipArea").innerHTML=`<div class="tip-grid">${tips.map(([h,c])=>`<div class="tip"><h4>${h}</h4>${c}</div>`).join("")}</div>`;
 }
 
