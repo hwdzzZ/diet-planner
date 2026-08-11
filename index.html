@@ -723,7 +723,12 @@ function generateWeek(record=true){
   state.week=week.wk; state.sig=week.sig;
   if(record){
     const t=todayStr();
-    state.history=state.history.filter(h=>h.date!==t).concat([{date:t,dishes:state.week.flatMap(m=>m.items.map(i=>i.id)).filter(id=>!id.startsWith("add_"))}]);
+    /* 同一天多次生成：合并当天记录（而非替换），否则上一次'今天用过'的菜被遗忘、
+       下次生成又从'从未用过(999天)'同一起点选择 → 出现 1st=3rd 的周期重复 */
+    const prev=state.history.find(h=>h.date===t);
+    const newDishes=state.week.flatMap(m=>m.items.map(i=>i.id)).filter(id=>!id.startsWith("add_"));
+    state.history=state.history.filter(h=>h.date!==t);
+    state.history.push({date:t,dishes:prev?[...new Set([...prev.dishes,...newDishes])]:newDishes});
     state.signatures.push({d:t,sig:state.sig});  /* 按点击次数累计：每次正式生成+1（6周窗口内） */
     saveLS(LS_HIST,state.history);
     saveLS(LS_SIG,state.signatures);
